@@ -1,0 +1,234 @@
+import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
+import Home from './components/Home';
+import Login from './components/Login';
+import Dashboard from './components/Dashboard';
+import Register from './components/Register';
+import {
+  Product, Features, Pricing, Reviews,
+  Company, About, Team, Careers,
+  Resources, Blog, Guides, Community,
+  Legal, Privacy, Terms
+} from './components/StaticPages';
+import { FindSkills, MySkills, Messages, Profile } from './components/DashboardPages';
+import TeacherAdmin from './components/TeacherAdmin';
+import SuperAdmin from './components/mainAdmin';
+import AdminLogin from './components/AdminLogin';
+import SuperAdminRegister from './components/SuperAdminRegister';
+
+function Navbar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [credits, setCredits] = useState(0);
+
+  useEffect(() => {
+    const updateCredits = () => {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setCredits(parsedUser.credits !== undefined ? parsedUser.credits : 5);
+      }
+    };
+    updateCredits();
+    window.addEventListener('user_updated', updateCredits);
+    return () => window.removeEventListener('user_updated', updateCredits);
+  }, [location]);
+
+  const isHome = location.pathname === '/';
+
+  // Agar path login ya register hai to navbar mat dikhao
+  if (['/login', '/register', '/admin/login', '/super-admin/register', '/main-admin/register'].includes(location.pathname) || location.pathname.startsWith('/super-admin')) {
+    return null;
+  }
+
+  // Dashboard Navbar (Logged in view)
+  if (location.pathname.startsWith('/dashboard')) {
+    return (
+      <nav>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4rem' }}>
+          <Link to="/dashboard" className="logo" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img src="/vite.svg" alt="SkillSwap Logo" width="30" height="30" />
+            SkillSwap
+          </Link>
+          <div className="nav-links">
+            <Link to="/dashboard" className="nav-link">Overview</Link>
+            <Link to="/dashboard/find-skills" className="nav-link">Find Skills</Link>
+            <Link to="/dashboard/my-skills" className="nav-link">My Skills</Link>
+            <Link to="/dashboard/messages" className="nav-link">Messages</Link>
+            <Link to="/dashboard/profile" className="nav-link">Profile</Link>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <div style={{ background: 'rgba(100, 108, 255, 0.15)', padding: '6px 14px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid rgba(100, 108, 255, 0.3)' }}>
+            <span style={{ fontSize: '1.1rem' }}>⚡</span>
+            <span style={{ fontWeight: '600', color: '#fff', fontSize: '0.95rem' }}>{credits} Credits</span>
+          </div>
+          <div className="notification-wrapper" onClick={() => setShowNotifications(!showNotifications)}>
+            <div className="notification-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            </div>
+            <span className="notification-badge">3</span>
+            {showNotifications && (
+              <div className="notification-dropdown">
+                <div className="notification-header">Notifications</div>
+                <div className="notification-item">
+                  <strong>New Match</strong>
+                  <p>Sarah matched with you</p>
+                </div>
+                <div className="notification-item">
+                  <strong>Message</strong>
+                  <p>Alex: Hey, are we still on?</p>
+                </div>
+                <div className="notification-item">
+                  <strong>System</strong>
+                  <p>Profile updated successfully</p>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="avatar" style={{ width: '35px', height: '35px', background: 'linear-gradient(135deg, #646cff, #bc13fe)', fontSize: '0.9rem', cursor: 'pointer', marginRight: 0 }}>Me</div>
+          <button
+            onClick={() => {
+              localStorage.removeItem('user');
+              navigate('/');
+            }}
+            className="btn-outline"
+            style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem', borderColor: '#ff4d4d', color: '#ff4d4d' }}
+          >
+            Logout
+          </button>
+        </div>
+      </nav>
+    );
+  }
+
+  // Teacher Admin Navbar
+  if (location.pathname.startsWith('/admin')) {
+    return (
+      <nav>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4rem' }}>
+          <div className="logo" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.5rem', cursor: 'default' }}>
+            <span style={{ fontSize: '1.8rem' }}>🎓</span>
+            Teacher Portal
+          </div>
+          <div className="nav-links">
+            <Link to="/admin/overview" className="nav-link">Overview</Link>
+            <Link to="/admin/requests" className="nav-link">Requests</Link>
+            <Link to="/admin/instructors" className="nav-link">Instructors</Link>
+          </div>
+        </div>
+        <button
+          onClick={() => { localStorage.removeItem('user'); navigate('/admin/login'); }}
+          className="btn-outline"
+          style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem', borderColor: '#ff4d4d', color: '#ff4d4d' }}
+        >
+          Logout
+        </button>
+      </nav>
+    );
+  }
+
+  return (
+    <nav>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '9rem' }}>
+        <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img src="/vite.svg" alt="SkillSwap Logo" width="30" height="30" />
+          Skillswap
+        </div>
+        <div className="nav-links">
+          <Link to="/" className={`nav-link ${isHome ? 'active' : ''}`}>Home</Link>
+
+          <div className="nav-item">
+            <Link to="/product" className={`nav-link ${isHome ? 'active' : ''}`}>Product ▾</Link>
+            <div className="dropdown">
+              <Link to="/product/features">Features</Link>
+              <Link to="/product/pricing">Pricing</Link>
+              <Link to="/product/reviews">Reviews</Link>
+            </div>
+          </div>
+
+          <div className="nav-item">
+            <Link to="/company" className={`nav-link ${isHome ? 'active' : ''}`}>Company ▾</Link>
+            <div className="dropdown">
+              <Link to="/company/about">About Us</Link>
+              <Link to="/company/team">Our Team</Link>
+              <Link to="/company/careers">Careers</Link>
+            </div>
+          </div>
+
+          <div className="nav-item">
+            <Link to="/resources" className={`nav-link ${isHome ? 'active' : ''}`}>Resources ▾</Link>
+            <div className="dropdown">
+              <Link to="/resources/blog">Blog</Link>
+              <Link to="/resources/guides">Guides</Link>
+              <Link to="/resources/community">Community</Link>
+            </div>
+          </div>
+
+          <div className="nav-item">
+            <Link to="/legal" className={`nav-link ${isHome ? 'active' : ''}`}>Legal ▾</Link>
+            <div className="dropdown">
+              <Link to="/legal/privacy">Privacy Policy</Link>
+              <Link to="/legal/terms">Terms of Service</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+      <Link to="/register" className="btn-primary" style={{ textDecoration: 'none', padding: '0.6rem 1.5rem', borderRadius: '30px', fontSize: '0.95rem', fontWeight: '600' }}>
+        Get Started
+      </Link>
+    </nav>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <Navbar />
+
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/dashboard" element={<div className="page-content"><Dashboard /></div>} />
+        <Route path="/dashboard/my-skills" element={<MySkills />} />
+        <Route path="/dashboard/messages" element={<Messages />} />
+        <Route path="/dashboard/profile" element={<Profile />} />
+        <Route path="/dashboard/find-skills" element={<FindSkills />} />
+        <Route path="/community" element={<Community />} />
+        <Route path="/admin/*" element={<TeacherAdmin />} />
+        <Route path="/super-admin/*" element={<SuperAdmin />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/super-admin/register" element={<SuperAdminRegister />} />
+        {/* Main Admin Route alias */}
+        <Route path="/main-admin/register" element={<SuperAdminRegister />} />
+
+        {/* Product Routes */}
+        <Route path="/product" element={<Product />} />
+        <Route path="/product/features" element={<Features />} />
+        <Route path="/product/pricing" element={<Pricing />} />
+        <Route path="/product/reviews" element={<Reviews />} />
+
+        {/* Company Routes */}
+        <Route path="/company" element={<Company />} />
+        <Route path="/company/about" element={<About />} />
+        <Route path="/company/team" element={<Team />} />
+        <Route path="/company/careers" element={<Careers />} />
+
+        {/* Resources Routes */}
+        <Route path="/resources" element={<Resources />} />
+        <Route path="/resources/blog" element={<Blog />} />
+        <Route path="/resources/guides" element={<Guides />} />
+        <Route path="/resources/community" element={<Community />} />
+
+        {/* Legal Routes */}
+        <Route path="/legal" element={<Legal />} />
+        <Route path="/legal/privacy" element={<Privacy />} />
+        <Route path="/legal/terms" element={<Terms />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
