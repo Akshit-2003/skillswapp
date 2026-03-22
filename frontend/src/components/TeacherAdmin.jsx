@@ -79,6 +79,7 @@ const TeacherAdmin = () => {
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [showCertificateModal, setShowCertificateModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [userSearchTerm, setUserSearchTerm] = useState('');
 
   useEffect(() => {
     const parsedUser = getStoredUser();
@@ -92,8 +93,8 @@ const TeacherAdmin = () => {
     }
   }, [navigate]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
       const user = getStoredUser();
       const isSuper = user?.role === 'Main Admin' || user?.role === 'Super Admin';
@@ -146,12 +147,15 @@ const TeacherAdmin = () => {
     } catch (error) {
       console.error('Teacher admin fetch error:', error);
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
+    // Real-time Database Sync for User Lookup and other records (Updates every 5 seconds)
+    const intervalId = setInterval(() => fetchData(true), 5000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleApprove = async (request) => {
@@ -245,7 +249,7 @@ const TeacherAdmin = () => {
 
   const verifiedSkills = allSkills.filter((skill) => skill.status === 'Verified');
 
-  const OverviewPage = () => {
+  const renderOverviewPage = () => {
     const user = getStoredUser();
     const isSuper = user?.role === 'Main Admin' || user?.role === 'Super Admin';
 
@@ -294,7 +298,7 @@ const TeacherAdmin = () => {
     );
   };
 
-  const VerificationPage = () => (
+  const renderVerificationPage = () => (
     <PageContainer title="Skill Approvals and Proofs" subtitle="Conduct video checks, send quizzes, or review certificates to verify users.">
       {pendingRequests.length === 0 ? (
         <div style={{ background: '#1f2937', padding: '4rem', textAlign: 'center', borderRadius: '12px', color: '#9ca3af' }}>
@@ -487,7 +491,7 @@ const TeacherAdmin = () => {
     </PageContainer>
   );
 
-  const ActiveSwapsPage = () => (
+  const renderActiveSwapsPage = () => (
     <PageContainer title="Monitor Swaps" subtitle="Oversee active skill exchange sessions between users.">
       <div style={{ background: '#1f2937', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -519,7 +523,7 @@ const TeacherAdmin = () => {
     </PageContainer>
   );
 
-  const RatingsComplaintsPage = () => (
+  const renderRatingsComplaintsPage = () => (
     <PageContainer title="Ratings and Complaints" subtitle="Monitor user ratings post-session and report issues to main admin.">
       <div style={{ background: '#1f2937', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -560,7 +564,7 @@ const TeacherAdmin = () => {
     </PageContainer>
   );
 
-  const AdminReportsPage = () => (
+  const renderAdminReportsPage = () => (
     <PageContainer title="Admin Reports" subtitle="Overview of escalations sent to the main administration team.">
       <div style={{ display: 'grid', gap: '2rem' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem' }}>
@@ -585,12 +589,11 @@ const TeacherAdmin = () => {
     </PageContainer>
   );
 
-  const UserLookupPage = () => {
-    const [searchTerm, setSearchTerm] = useState('');
+  const renderUserLookupPage = () => {
     const filteredUsers = allUsers.filter(u => {
       const n = u.name || '';
       const e = u.email || '';
-      return n.toLowerCase().includes(searchTerm.toLowerCase()) || e.toLowerCase().includes(searchTerm.toLowerCase());
+      return n.toLowerCase().includes(userSearchTerm.toLowerCase()) || e.toLowerCase().includes(userSearchTerm.toLowerCase());
     });
 
     return (
@@ -598,8 +601,8 @@ const TeacherAdmin = () => {
         <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
           <input
             placeholder="Search by name or email..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            value={userSearchTerm}
+            onChange={e => setUserSearchTerm(e.target.value)}
             style={{ width: '100%', maxWidth: '400px', padding: '12px 16px', background: '#1f2937', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '8px', outline: 'none' }}
           />
         </div>
@@ -634,7 +637,7 @@ const TeacherAdmin = () => {
     );
   };
 
-  const ModerationRulesPage = () => (
+  const renderModerationRulesPage = () => (
     <PageContainer title="Moderation Guidelines" subtitle="Platform rules and standard operating procedures for Teacher Admins.">
       <div style={{ display: 'grid', gap: '1.5rem' }}>
         <div style={{ background: '#1f2937', padding: '24px', borderRadius: '12px', borderLeft: '4px solid #10b981', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
@@ -705,13 +708,13 @@ const TeacherAdmin = () => {
           ) : (
             <Routes>
               <Route path="/" element={<Navigate to="overview" replace />} />
-              <Route path="overview" element={<OverviewPage />} />
-              <Route path="verifications" element={<VerificationPage />} />
-              <Route path="swaps" element={<ActiveSwapsPage />} />
-              <Route path="ratings" element={<RatingsComplaintsPage />} />
-              <Route path="users" element={<UserLookupPage />} />
-              <Route path="guidelines" element={<ModerationRulesPage />} />
-              <Route path="reports" element={<AdminReportsPage />} />
+              <Route path="overview" element={renderOverviewPage()} />
+              <Route path="verifications" element={renderVerificationPage()} />
+              <Route path="swaps" element={renderActiveSwapsPage()} />
+              <Route path="ratings" element={renderRatingsComplaintsPage()} />
+              <Route path="users" element={renderUserLookupPage()} />
+              <Route path="guidelines" element={renderModerationRulesPage()} />
+              <Route path="reports" element={renderAdminReportsPage()} />
             </Routes>
           )}
         </div>

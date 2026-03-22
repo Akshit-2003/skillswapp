@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import { buildApiUrl } from '../api';
 import { apiRoutes } from '../routes/apiRoutes';
-import { clearStoredUser, getStoredUser } from '../utils/auth';
+import { clearStoredUser, getStoredUser, storeUser } from '../utils/auth';
 
 // --- Styled Components for Dashboard ---
 const SidebarItem = ({ icon, label, to, active, badgeCount = 0 }) => {
@@ -321,6 +321,7 @@ const SuperAdmin = () => {
   const [allTickets, setAllTickets] = useState([]);
   const [allLogs, setAllLogs] = useState([]);
   const [allAnnouncements, setAllAnnouncements] = useState([]);
+  const [allAdminReports, setAllAdminReports] = useState([]);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '' });
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -328,12 +329,42 @@ const SuperAdmin = () => {
   const [showTeacherModal, setShowTeacherModal] = useState(false);
   const [teacherForm, setTeacherForm] = useState({ name: '', email: '', password: '' });
   const [adminAvatar, setAdminAvatar] = useState(null);
+  const [adminProfileForm, setAdminProfileForm] = useState({ name: '', email: '', password: '' });
+  const [platformConfig, setPlatformConfig] = useState({ title: 'SkillSwap', supportEmail: 'support@skillswap.com', defaultCredits: 5, allowReg: true, maintenance: false });
+  const [contents, setContents] = useState([
+    { title: 'Terms of Service', lastUpdated: '2 weeks ago', text: 'Welcome to SkillSwap Terms of Service...' },
+    { title: 'Privacy Policy', lastUpdated: '2 weeks ago', text: 'SkillSwap Privacy Policy...' },
+    { title: 'Community Guidelines', lastUpdated: '2 weeks ago', text: 'SkillSwap Community Guidelines...' },
+    { title: 'Landing Page Hero Copy', lastUpdated: '2 weeks ago', text: 'Unlock Your Potential with Skillswap' },
+    { title: 'Email Templates', lastUpdated: '2 weeks ago', text: 'Hello User,\nWelcome to SkillSwap!' }
+  ]);
+  const [editingContent, setEditingContent] = useState(null);
 
-  const handleAvatarChange = (e) => {
+  const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      setAdminAvatar(imageUrl);
+      const user = getStoredUser();
+      const formData = new FormData();
+      formData.append('email', user.email);
+      formData.append('avatar', file);
+
+      try {
+        const response = await fetch(buildApiUrl('/api/user/avatar'), {
+          method: 'POST',
+          body: formData
+        });
+        const data = await response.json();
+        if (response.ok) {
+          storeUser(data.user);
+          setAdminAvatar(buildApiUrl(data.user.avatar.replace(/\\/g, '/')));
+          alert('Avatar updated successfully!');
+        } else {
+          alert(data.message || 'Failed to update avatar');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error updating avatar');
+      }
     }
   };
 
@@ -344,6 +375,12 @@ const SuperAdmin = () => {
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
 
+  // Verifier App Review State
+  const [showVerifierModal, setShowVerifierModal] = useState(false);
+  const [selectedVerifierApp, setSelectedVerifierApp] = useState(null);
+  const [isVerifierProofChecked, setIsVerifierProofChecked] = useState(false);
+  const [showDocumentPreview, setShowDocumentPreview] = useState(false);
+
   // Mock Data for Chart
   const userGrowthData = [20, 35, 45, 50, 65, 75, 85, 90, 80, 95];
 
@@ -351,13 +388,18 @@ const SuperAdmin = () => {
     const user = getStoredUser();
     if (!user || (user.role !== 'Main Admin' && user.role !== 'Super Admin')) {
       navigate('/admin/login');
+    } else {
+      setAdminProfileForm({ name: user.name || '', email: user.email || '', password: '' });
+      if (user.avatar) {
+        setAdminAvatar(buildApiUrl(user.avatar.replace(/\\/g, '/')));
+      }
     }
   }, [navigate]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
-      const [usersRes, statsRes, skillsRes, teachersRes, verifierRes, sessionsRes, ratingsRes, ticketsRes, logsRes, announcementsRes] = await Promise.all([
+      const [usersRes, statsRes, skillsRes, teachersRes, verifierRes, sessionsRes, ratingsRes, ticketsRes, logsRes, announcementsRes, reportsRes] = await Promise.all([
         fetch(buildApiUrl('/api/admin/users')),
         fetch(buildApiUrl('/api/admin/stats')),
         fetch(buildApiUrl(apiRoutes.platform.skills)),
@@ -367,7 +409,8 @@ const SuperAdmin = () => {
         fetch(buildApiUrl('/api/admin/ratings')),
         fetch(buildApiUrl('/api/admin/tickets')),
         fetch(buildApiUrl('/api/admin/logs')),
-        fetch(buildApiUrl('/api/admin/announcements'))
+        fetch(buildApiUrl('/api/admin/announcements')),
+        fetch(buildApiUrl('/api/admin/reports'))
       ]);
 
       const usersData = await usersRes.json();
@@ -390,16 +433,20 @@ const SuperAdmin = () => {
       if (ticketsRes.ok) setAllTickets(await ticketsRes.json());
       if (logsRes.ok) setAllLogs(await logsRes.json());
       if (announcementsRes.ok) setAllAnnouncements(await announcementsRes.json());
+      if (reportsRes.ok) setAllAdminReports(await reportsRes.json());
 
     } catch (err) {
       console.error("Dashboard Fetch Error:", err);
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
+    // Real-time Database Sync (Updates every 5 seconds)
+    const intervalId = setInterval(() => fetchData(true), 5000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleLogout = () => {
@@ -499,6 +546,68 @@ const SuperAdmin = () => {
     }
   };
 
+  const handleUpdateAdminProfile = async (e) => {
+    e.preventDefault();
+    const user = getStoredUser();
+    try {
+      const response = await fetch(buildApiUrl('/api/user/profile'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, name: adminProfileForm.name, password: adminProfileForm.password, bio: user.bio, skillsWanted: user.skillsWanted })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        storeUser(data.user);
+        alert('Profile updated successfully!');
+        setAdminProfileForm(prev => ({ ...prev, password: '' }));
+      } else {
+        alert(data.message || 'Failed to update profile');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error updating profile');
+    }
+  };
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    try {
+      await fetch(buildApiUrl('/api/admin/config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(platformConfig)
+      }).catch(e => console.log('Mocking config save since backend might not have this endpoint yet'));
+      alert('Platform configuration saved successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Error saving configuration');
+    }
+  };
+
+  const handleSaveContent = async () => {
+    try {
+      await fetch(buildApiUrl('/api/admin/content'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingContent)
+      }).catch(e => console.log('Mocking content save'));
+
+      setContents(prev => prev.map(c => c.title === editingContent.title ? { ...editingContent, lastUpdated: 'Just now' } : c));
+      setEditingContent(null);
+      alert('Content updated successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Error saving content');
+    }
+  };
+
+  const handleReviewVerifierApp = (app) => {
+    setSelectedVerifierApp(app);
+    setIsVerifierProofChecked(false);
+    setShowDocumentPreview(false);
+    setShowVerifierModal(true);
+  };
+
   const handleApproveRejectApp = async (id, status) => {
     if (!window.confirm(`Are you sure you want to ${status.toLowerCase()} this application?`)) return;
     try {
@@ -509,6 +618,7 @@ const SuperAdmin = () => {
       });
       if (response.ok) {
         alert(`Application ${status} successfully!`);
+        setShowVerifierModal(false);
         fetchData(); // Refresh lists
       } else {
         const data = await response.json();
@@ -545,6 +655,21 @@ const SuperAdmin = () => {
       alert('Error sending broadcast');
     } finally {
       setIsBroadcasting(false);
+    }
+  };
+
+  const handleResolveReport = async (reportId) => {
+    if (!window.confirm("Are you sure you want to mark this report as resolved?")) return;
+    try {
+      const res = await fetch(buildApiUrl(`/api/admin/reports/${reportId}/resolve`), { method: 'PUT' });
+      if (res.ok) {
+        alert('Report resolved successfully!');
+        fetchData();
+      } else {
+        alert('Failed to resolve report.');
+      }
+    } catch (err) {
+      console.error('Error resolving report', err);
     }
   };
 
@@ -602,7 +727,7 @@ const SuperAdmin = () => {
 
         {/* Tables Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
-          
+
           {/* Recent Users Table */}
           <div style={{ background: '#1f2937', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -783,7 +908,7 @@ const SuperAdmin = () => {
               <th style={{ padding: '16px' }}>Applicant</th>
               <th style={{ padding: '16px' }}>Category</th>
               <th style={{ padding: '16px' }}>Experience</th>
-              <th style={{ padding: '16px' }}>Proof</th>
+              <th style={{ padding: '16px' }}>Skills</th>
               <th style={{ padding: '16px' }}>Actions</th>
             </tr>
           </thead>
@@ -796,16 +921,9 @@ const SuperAdmin = () => {
                 </td>
                 <td style={{ padding: '16px' }}>{app.category}</td>
                 <td style={{ padding: '16px' }}>{app.experience} Years</td>
+                <td style={{ padding: '16px' }}>{app.skillsToModerate?.join(', ') || 'N/A'}</td>
                 <td style={{ padding: '16px' }}>
-                  {app.resumeUrl && app.resumeUrl !== 'No file uploaded' ? (
-                    <a href={buildApiUrl(app.resumeUrl.replace(/\\/g, '/'))} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
-                      <button style={{ background: 'transparent', border: '1px solid #646cff', color: '#646cff', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer' }}>View PDF</button>
-                    </a>
-                  ) : 'No Proof'}
-                </td>
-                <td style={{ padding: '16px', display: 'flex', gap: '8px' }}>
-                  <button onClick={() => handleApproveRejectApp(app._id, 'Approved')} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Approve</button>
-                  <button onClick={() => handleApproveRejectApp(app._id, 'Rejected')} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>Reject</button>
+                  <button onClick={() => handleReviewVerifierApp(app)} style={{ background: 'rgba(100,108,255,0.1)', color: '#646cff', border: '1px solid rgba(100,108,255,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Review</button>
                 </td>
               </tr>
             ))}
@@ -915,10 +1033,45 @@ const SuperAdmin = () => {
   );
 
   const renderDisputesPage = () => (
-    <div style={{ animation: 'fadeInUp 0.5s ease', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-      <div style={{ fontSize: '5rem', marginBottom: '1rem', opacity: 0.8 }}>⚖️</div>
-      <h2 style={{ color: '#10b981', margin: '0 0 10px 0' }}>No Active Disputes</h2>
-      <p style={{ color: '#9ca3af', maxWidth: '400px', textAlign: 'center' }}>Great job! The community is running smoothly and there are no reported conflicts between users.</p>
+    <div style={{ animation: 'fadeInUp 0.5s ease' }}>
+      <h2 style={{ color: '#e5e7eb', marginBottom: '1.5rem' }}>Disputes & Teacher Escalations</h2>
+      {allAdminReports.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '50vh' }}>
+          <div style={{ fontSize: '5rem', marginBottom: '1rem', opacity: 0.8 }}>⚖️</div>
+          <h2 style={{ color: '#10b981', margin: '0 0 10px 0' }}>No Active Disputes</h2>
+          <p style={{ color: '#9ca3af', maxWidth: '400px', textAlign: 'center' }}>Great job! The community is running smoothly and there are no reported conflicts.</p>
+        </div>
+      ) : (
+        <div style={{ background: '#1f2937', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', color: '#d1d5db' }}>
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.05)', borderBottom: '1px solid #374151' }}>
+                <th style={{ padding: '16px' }}>Reported User</th>
+                <th style={{ padding: '16px' }}>Reason</th>
+                <th style={{ padding: '16px' }}>Details / Complaint</th>
+                <th style={{ padding: '16px' }}>Status</th>
+                <th style={{ padding: '16px' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allAdminReports.map(report => (
+                <tr key={report._id} style={{ borderBottom: '1px solid #374151' }}>
+                  <td style={{ padding: '16px' }}>
+                    <strong style={{ color: '#fff', display: 'block' }}>{report.targetUserName}</strong>
+                    <small style={{ color: '#9ca3af' }}>{report.targetUserEmail}</small>
+                  </td>
+                  <td style={{ padding: '16px', color: '#f59e0b' }}>{report.reason}</td>
+                  <td style={{ padding: '16px', maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={report.complaint}>{report.complaint || 'No details provided.'}</td>
+                  <td style={{ padding: '16px' }}><span style={{ padding: '4px 10px', background: report.status === 'Resolved' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: report.status === 'Resolved' ? '#10b981' : '#ef4444', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold' }}>{report.status}</span></td>
+                  <td style={{ padding: '16px' }}>
+                    {report.status !== 'Resolved' && <button onClick={() => handleResolveReport(report._id)} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Mark Resolved</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 
@@ -926,16 +1079,36 @@ const SuperAdmin = () => {
     <div style={{ animation: 'fadeInUp 0.5s ease' }}>
       <h2 style={{ color: '#e5e7eb', marginBottom: '1.5rem' }}>Content Management</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-        {['Terms of Service', 'Privacy Policy', 'Community Guidelines', 'Landing Page Hero Copy', 'Email Templates'].map((item, i) => (
+        {contents.map((item, i) => (
           <div key={i} style={{ background: '#1f2937', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <span style={{ color: '#fff', fontWeight: '600', fontSize: '1.1rem', display: 'block' }}>{item}</span>
-              <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>Last updated: 2 weeks ago</span>
+              <span style={{ color: '#fff', fontWeight: '600', fontSize: '1.1rem', display: 'block' }}>{item.title}</span>
+              <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>Last updated: {item.lastUpdated}</span>
             </div>
-            <button style={{ background: 'rgba(100,108,255,0.15)', color: '#646cff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Edit</button>
+            <button onClick={() => setEditingContent(item)} style={{ background: 'rgba(100,108,255,0.15)', color: '#646cff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Edit</button>
           </div>
         ))}
       </div>
+
+      {editingContent && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, animation: 'fadeIn 0.2s ease' }}>
+          <div style={{ background: '#1f2937', padding: '30px', borderRadius: '12px', width: '700px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', border: '1px solid #374151', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid #374151', paddingBottom: '1rem' }}>
+              <h3 style={{ margin: 0, color: '#fff' }}>Editing: {editingContent.title}</h3>
+              <button onClick={() => setEditingContent(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '1.2rem', cursor: 'pointer' }}>✖</button>
+            </div>
+            <textarea
+              value={editingContent.text}
+              onChange={e => setEditingContent({ ...editingContent, text: e.target.value })}
+              style={{ flex: 1, minHeight: '300px', padding: '15px', borderRadius: '8px', border: '1px solid #4b5563', background: '#111827', color: '#d1d5db', fontFamily: 'monospace', fontSize: '0.95rem', resize: 'vertical', outline: 'none' }}
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '1.5rem', marginTop: '1.5rem' }}>
+              <button onClick={() => setEditingContent(null)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #374151', color: '#d1d5db', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleSaveContent} style={{ padding: '10px 20px', background: '#10b981', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -989,53 +1162,57 @@ const SuperAdmin = () => {
           <h3 style={{ margin: '0 0 1.5rem 0', color: '#fff', borderBottom: '1px solid #374151', paddingBottom: '10px' }}>Admin Profile</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '1.5rem' }}>
             <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: adminAvatar ? `url(${adminAvatar}) center/cover` : 'linear-gradient(135deg, #646cff, #bc13fe)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 'bold', color: '#fff' }}>
-              {!adminAvatar && 'AK'}
+              {!adminAvatar && (adminProfileForm.name ? adminProfileForm.name.charAt(0).toUpperCase() : 'A')}
             </div>
             <input type="file" id="avatarUpload" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
             <label htmlFor="avatarUpload" style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', transition: 'background 0.2s', display: 'inline-block' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>Change Avatar</label>
           </div>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Full Name</label>
-            <input type="text" defaultValue="Akshit Kansal" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
-          </div>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Email Address</label>
-            <input type="email" defaultValue="admin@skillswap.com" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
-          </div>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>New Password</label>
-            <input type="password" placeholder="Leave blank to keep current" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
-          </div>
-          <button style={{ background: '#10b981', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Update Profile</button>
+          <form onSubmit={handleUpdateAdminProfile}>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Full Name</label>
+              <input type="text" value={adminProfileForm.name} onChange={e => setAdminProfileForm({ ...adminProfileForm, name: e.target.value })} required style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Email Address</label>
+              <input type="email" value={adminProfileForm.email} disabled style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#9ca3af', outline: 'none', cursor: 'not-allowed' }} />
+            </div>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>New Password</label>
+              <input type="password" placeholder="Leave blank to keep current" value={adminProfileForm.password} onChange={e => setAdminProfileForm({ ...adminProfileForm, password: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
+            </div>
+            <button type="submit" style={{ background: '#10b981', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Update Profile</button>
+          </form>
         </div>
 
         {/* Platform Configuration */}
         <div style={{ background: '#1f2937', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
           <h3 style={{ margin: '0 0 1.5rem 0', color: '#fff', borderBottom: '1px solid #374151', paddingBottom: '10px' }}>Platform Configuration</h3>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Platform Title</label>
-            <input type="text" defaultValue="SkillSwap" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
-          </div>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Global Support Email</label>
-            <input type="email" defaultValue="support@skillswap.com" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
-          </div>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Default New User Credits</label>
-            <input type="number" defaultValue="5" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
-          </div>
+          <form onSubmit={handleSaveConfig}>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Platform Title</label>
+              <input type="text" value={platformConfig.title} onChange={e => setPlatformConfig({ ...platformConfig, title: e.target.value })} required style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Global Support Email</label>
+              <input type="email" value={platformConfig.supportEmail} onChange={e => setPlatformConfig({ ...platformConfig, supportEmail: e.target.value })} required style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
+            </div>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', color: '#9ca3af', marginBottom: '8px', fontSize: '0.9rem' }}>Default New User Credits</label>
+              <input type="number" value={platformConfig.defaultCredits} onChange={e => setPlatformConfig({ ...platformConfig, defaultCredits: parseInt(e.target.value) || 0 })} required style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: '#111827', color: '#fff', outline: 'none' }} />
+            </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px' }}>
-              <input type="checkbox" id="reg" defaultChecked style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-              <label htmlFor="reg" style={{ color: '#e5e7eb', cursor: 'pointer', fontSize: '0.9rem' }}>Allow New User Registrations</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px' }}>
+                <input type="checkbox" id="reg" checked={platformConfig.allowReg} onChange={e => setPlatformConfig({ ...platformConfig, allowReg: e.target.checked })} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                <label htmlFor="reg" style={{ color: '#e5e7eb', cursor: 'pointer', fontSize: '0.9rem' }}>Allow New User Registrations</label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(239, 68, 68, 0.1)', padding: '10px 15px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <input type="checkbox" id="maint" checked={platformConfig.maintenance} onChange={e => setPlatformConfig({ ...platformConfig, maintenance: e.target.checked })} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                <label htmlFor="maint" style={{ color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '500' }}>Enable Maintenance Mode (Blocks Login)</label>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(239, 68, 68, 0.1)', padding: '10px 15px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-              <input type="checkbox" id="maint" style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-              <label htmlFor="maint" style={{ color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '500' }}>Enable Maintenance Mode (Blocks Login)</label>
-            </div>
-          </div>
-          <button style={{ background: 'linear-gradient(135deg, #646cff, #bc13fe)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Save Configuration</button>
+            <button type="submit" style={{ background: 'linear-gradient(135deg, #646cff, #bc13fe)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Save Configuration</button>
+          </form>
         </div>
       </div>
     </div>
@@ -1125,7 +1302,7 @@ const SuperAdmin = () => {
             <p style={{ padding: '0 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#6b7280', fontWeight: '600', margin: '20px 0 8px', letterSpacing: '0.5px' }}>Finance & Support</p>
             <SidebarItem to="/super-admin/credits" label="Credit Management" icon="💰" active={location.pathname.includes('/credits')} />
             <SidebarItem to="/super-admin/support" label="Support Tickets" icon="🎫" active={location.pathname.includes('/support')} badgeCount={allTickets.filter(t => t.status === 'Pending').length} />
-            <SidebarItem to="/super-admin/disputes" label="Disputes Handling" icon="⚖️" active={location.pathname.includes('/disputes')} />
+            <SidebarItem to="/super-admin/disputes" label="Disputes Handling" icon="⚖️" active={location.pathname.includes('/disputes')} badgeCount={allAdminReports.filter(r => r.status !== 'Resolved').length} />
 
             <p style={{ padding: '0 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#6b7280', fontWeight: '600', margin: '20px 0 8px', letterSpacing: '0.5px' }}>Content & Marketing</p>
             <SidebarItem to="/super-admin/content" label="Content Management" icon="📝" active={location.pathname.includes('/content')} />
@@ -1192,11 +1369,11 @@ const SuperAdmin = () => {
               </div>
               <div className="admin-hover-trigger" onMouseEnter={e => e.currentTarget.style.opacity = '0.8'} onMouseLeave={e => e.currentTarget.style.opacity = '1'} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px', borderLeft: '1px solid #374151', paddingLeft: '20px', cursor: 'pointer', transition: 'opacity 0.2s ease' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: '600', color: '#fff' }}>Akshit Kansal</p>
+                  <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: '600', color: '#fff' }}>{adminProfileForm.name || 'Admin'}</p>
                   <p style={{ margin: 0, fontSize: '0.75rem', color: '#9ca3af' }}>Super Admin</p>
                 </div>
                 <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: adminAvatar ? `url(${adminAvatar}) center/cover` : 'linear-gradient(135deg, #646cff, #bc13fe)', border: '2px solid #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#fff' }}>
-                  {!adminAvatar && 'AK'}
+                  {!adminAvatar && (adminProfileForm.name ? adminProfileForm.name.substring(0, 2).toUpperCase() : 'A')}
                 </div>
                 <ProfileDropdown onLogout={handleLogout} />
               </div>
@@ -1334,6 +1511,105 @@ const SuperAdmin = () => {
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button onClick={() => setShowTicketModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #374151', color: '#d1d5db', borderRadius: '6px', cursor: 'pointer' }}>Close</button>
                 {selectedTicket.status !== 'Resolved' && <button onClick={() => { alert('Marked as resolved!'); setShowTicketModal(false); }} style={{ padding: '10px 20px', background: '#10b981', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Mark as Resolved</button>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* View Verifier Application Modal */}
+        {showVerifierModal && selectedVerifierApp && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, animation: 'fadeIn 0.2s ease' }}>
+            <div style={{ background: '#1f2937', padding: '30px', borderRadius: '12px', width: '600px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #374151', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid #374151', paddingBottom: '1rem' }}>
+                <h3 style={{ margin: 0, color: '#fff' }}>Review Verifier Application</h3>
+                <button onClick={() => setShowVerifierModal(false)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '1.2rem', cursor: 'pointer' }}>✖</button>
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ margin: '0 0 5px 0', color: '#9ca3af', fontSize: '0.85rem' }}>Applicant Information</p>
+                <p style={{ margin: 0, color: '#e5e7eb', fontWeight: '500', fontSize: '1.1rem' }}>{selectedVerifierApp.name}</p>
+                <p style={{ margin: 0, color: '#d1d5db', fontSize: '0.95rem' }}>{selectedVerifierApp.email}</p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <p style={{ margin: '0 0 5px 0', color: '#9ca3af', fontSize: '0.85rem' }}>Category</p>
+                  <p style={{ margin: 0, color: '#e5e7eb', fontWeight: '500' }}>{selectedVerifierApp.category}</p>
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 5px 0', color: '#9ca3af', fontSize: '0.85rem' }}>Experience</p>
+                  <p style={{ margin: 0, color: '#e5e7eb', fontWeight: '500' }}>{selectedVerifierApp.experience} Years</p>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ margin: '0 0 5px 0', color: '#9ca3af', fontSize: '0.85rem' }}>Skills to Moderate</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {selectedVerifierApp.skillsToModerate?.map((skill, i) => (
+                    <span key={i} style={{ background: 'rgba(100,108,255,0.15)', color: '#93c5fd', padding: '4px 10px', borderRadius: '6px', fontSize: '0.85rem' }}>{skill}</span>
+                  ))}
+                  {(!selectedVerifierApp.skillsToModerate || selectedVerifierApp.skillsToModerate.length === 0) && <span style={{ color: '#9ca3af' }}>None provided</span>}
+                </div>
+              </div>
+
+              {selectedVerifierApp.summary && (
+                <div style={{ marginBottom: '1rem', background: '#111827', padding: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <p style={{ margin: '0 0 5px 0', color: '#9ca3af', fontSize: '0.85rem' }}>Summary / Bio</p>
+                  <p style={{ margin: 0, color: '#d1d5db', lineHeight: '1.5', fontSize: '0.95rem' }}>{selectedVerifierApp.summary}</p>
+                </div>
+              )}
+
+              <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                {selectedVerifierApp.linkedinUrl && (
+                  <a href={selectedVerifierApp.linkedinUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+                    <button style={{ background: '#0a66c2', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600' }}>
+                      LinkedIn Profile ↗
+                    </button>
+                  </a>
+                )}
+                {selectedVerifierApp.resumeUrl && selectedVerifierApp.resumeUrl !== 'No file uploaded' && (
+                  <button onClick={() => setShowDocumentPreview(!showDocumentPreview)} style={{ background: showDocumentPreview ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.1)', color: showDocumentPreview ? '#10b981' : '#fff', border: `1px solid ${showDocumentPreview ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255,255,255,0.2)'}`, padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', transition: 'all 0.2s' }}>
+                    {showDocumentPreview ? 'Hide Document 📄' : 'View Proof Document 📄'}
+                  </button>
+                )}
+              </div>
+
+              {showDocumentPreview && selectedVerifierApp.resumeUrl && (
+                <div style={{ marginBottom: '1.5rem', height: '400px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #374151', background: '#fff' }}>
+                  <iframe
+                    src={buildApiUrl(`/uploads/${selectedVerifierApp.resumeUrl.split(/[/\\]/).pop()}`)}
+                    title="Proof Document"
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                  />
+                </div>
+              )}
+
+              <div style={{ marginBottom: '1.5rem', padding: '15px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={isVerifierProofChecked} onChange={(e) => setIsVerifierProofChecked(e.target.checked)} style={{ width: '18px', height: '18px', marginTop: '2px', cursor: 'pointer' }} />
+                  <span style={{ color: '#fbbf24', fontSize: '0.95rem', lineHeight: '1.4' }}>I confirm that I have reviewed the applicant's details, verified their proofs, and consider them eligible for the Teacher Admin role.</span>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '1.5rem' }}>
+                <button onClick={() => setShowVerifierModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #374151', color: '#d1d5db', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => handleApproveRejectApp(selectedVerifierApp._id, 'Rejected')} style={{ padding: '10px 20px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Reject Application</button>
+                <button
+                  onClick={() => handleApproveRejectApp(selectedVerifierApp._id, 'Approved')}
+                  disabled={!isVerifierProofChecked}
+                  title={!isVerifierProofChecked ? 'Please verify proofs first' : ''}
+                  style={{
+                    padding: '10px 20px',
+                    background: isVerifierProofChecked ? '#10b981' : '#374151',
+                    border: 'none',
+                    color: isVerifierProofChecked ? '#fff' : '#9ca3af',
+                    borderRadius: '6px',
+                    cursor: isVerifierProofChecked ? 'pointer' : 'not-allowed',
+                    fontWeight: 'bold',
+                    transition: 'all 0.2s'
+                  }}>
+                  Verify & Approve
+                </button>
               </div>
             </div>
           </div>

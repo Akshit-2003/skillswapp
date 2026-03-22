@@ -29,6 +29,8 @@ function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const notificationRef = useRef(null);
   const [notifications, setNotifications] = useState([]);
+  const prevNotifState = useRef({ unreadCount: 0, totalNotifs: 0 });
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     const updateCredits = () => {
@@ -68,6 +70,33 @@ function Navbar() {
           if (response.ok) {
             const data = await response.json();
             setNotifications(data);
+
+            // Detect New Notifications to Show Toast Pop-up
+            const msgNotif = data.find(n => n.title.includes('New Messages'));
+            let currentUnread = 0;
+            if (msgNotif) {
+              const match = msgNotif.desc.match(/(\d+)/);
+              currentUnread = match ? parseInt(match[1]) : 0;
+            }
+
+            const realNotifs = data.filter(n => n.title !== 'All caught up! ✨');
+            const currentTotal = realNotifs.length;
+
+            if (currentUnread > prevNotifState.current.unreadCount) {
+              setToast({
+                title: 'New Message Received 💬',
+                desc: `You have new unread message(s). Click to view.`,
+                link: '/dashboard/messages'
+              });
+              setTimeout(() => setToast(null), 10000);
+            } else if (currentTotal > prevNotifState.current.totalNotifs && currentUnread === prevNotifState.current.unreadCount) {
+              const latestNotif = realNotifs[realNotifs.length - 1];
+              if (latestNotif) {
+                setToast({ title: latestNotif.title, desc: latestNotif.desc, link: '/dashboard' });
+                setTimeout(() => setToast(null), 10000);
+              }
+            }
+            prevNotifState.current = { unreadCount: currentUnread, totalNotifs: currentTotal };
           }
         } catch (e) {
           console.error("Failed to fetch notifications", e);
@@ -93,6 +122,124 @@ function Navbar() {
   // Dashboard Navbar (Logged in view)
   if (location.pathname.startsWith('/dashboard')) {
     return (
+      <>
+        <nav>
+          <button
+            type="button"
+            className="nav-toggle"
+            onClick={() => setIsMobileMenuOpen((open) => !open)}
+            aria-label="Toggle navigation menu"
+            aria-expanded={isMobileMenuOpen}
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div className="nav-group nav-group-primary">
+            <Link to="/dashboard" className="logo" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <img src="/vite.svg" alt="SkillSwap Logo" width="30" height="30" />
+              SkillSwap
+            </Link>
+            <div className={`nav-links ${isMobileMenuOpen ? 'nav-links-open' : ''}`}>
+              <Link to="/dashboard" className="nav-link">Overview</Link>
+              <Link to="/dashboard/find-skills" className="nav-link">Find Skills</Link>
+              <Link to="/dashboard/my-skills" className="nav-link">My Skills</Link>
+              <Link to="/dashboard/messages" className="nav-link">Messages</Link>
+              <Link to="/dashboard/profile" className="nav-link">Profile</Link>
+            </div>
+          </div>
+          <div className={`nav-group nav-group-secondary ${isMobileMenuOpen ? 'nav-group-open' : ''}`}>
+            <div style={{ background: 'rgba(100, 108, 255, 0.15)', padding: '6px 14px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid rgba(100, 108, 255, 0.3)' }}>
+              <span style={{ fontSize: '1.1rem' }}>⚡</span>
+              <span style={{ fontWeight: '600', color: '#fff', fontSize: '0.95rem' }}>{credits} Credits</span>
+            </div>
+            <div
+              ref={notificationRef}
+              className="notification-wrapper"
+              onMouseEnter={() => setShowNotifications(true)}
+              onMouseLeave={() => setShowNotifications(false)}
+            >
+              <div className="notification-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+              </div>
+              {notifications.length > 0 && notifications[0].title !== 'All caught up! ✨' && (
+                <span className="notification-badge">{notifications.length}</span>
+              )}
+              {showNotifications && (
+                <div className="notification-dropdown">
+                  <div className="notification-header">Notifications</div>
+                  {notifications.map((notif, idx) => (
+                    <div className="notification-item" key={idx}>
+                      <strong>{notif.title}</strong>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#9ca3af' }}>{notif.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div
+              className="profile-wrapper"
+              onMouseEnter={() => setShowProfileMenu(true)}
+              onMouseLeave={() => setShowProfileMenu(false)}
+              style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+            >
+              <div
+                className="avatar"
+                style={{ width: '35px', height: '35px', background: getStoredUser()?.avatar ? `url(${buildApiUrl(getStoredUser().avatar.replace(/\\/g, '/'))}) center/cover` : 'linear-gradient(135deg, #646cff, #bc13fe)', fontSize: '0.9rem', cursor: 'pointer', marginRight: 0 }}
+              >
+                {!getStoredUser()?.avatar && (getStoredUser()?.name ? getStoredUser().name.charAt(0).toUpperCase() : 'U')}
+              </div>
+              {showProfileMenu && (
+                <div className="notification-dropdown" style={{ width: '220px' }}>
+                  <div className="notification-header" style={{ padding: '15px' }}>
+                    <strong style={{ display: 'block', color: '#fff', fontSize: '1rem' }}>{getStoredUser()?.name || 'User'}</strong>
+                    <span style={{ color: '#aaa', fontSize: '0.8rem', fontWeight: 'normal' }}>{getStoredUser()?.email}</span>
+                  </div>
+                  <div className="notification-item" onClick={() => navigate('/dashboard/profile')}>
+                    <strong>⚙️ Profile Settings</strong>
+                  </div>
+                  <div className="notification-item" onClick={() => { clearStoredUser(); navigate('/'); }}>
+                    <strong style={{ color: '#ff4d4d' }}>🚪 Logout</strong>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </nav>
+
+        {/* TOAST NOTIFICATION POP-UP */}
+        {toast && (
+          <div
+            onClick={() => { navigate(toast.link); setToast(null); }}
+            style={{
+              position: 'fixed', bottom: '30px', right: '30px',
+              background: 'rgba(31, 41, 55, 0.95)', backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255,255,255,0.1)', borderLeft: '4px solid #646cff',
+              borderRadius: '12px', padding: '16px 20px', color: '#fff',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5), 0 10px 10px -5px rgba(0,0,0,0.2)',
+              zIndex: 99999, cursor: 'pointer', animation: 'fadeInUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+              display: 'flex', alignItems: 'center', gap: '16px', minWidth: '300px', maxWidth: '400px'
+            }}
+          >
+            <div style={{ background: 'rgba(100,108,255,0.2)', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+              🔔
+            </div>
+            <div style={{ flex: 1 }}>
+              <strong style={{ display: 'block', marginBottom: '4px', color: '#e5e7eb', fontSize: '1.05rem', fontWeight: '600' }}>{toast.title}</strong>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: '#9ca3af', lineHeight: '1.4' }}>{toast.desc}</p>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); setToast(null); }} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#9ca3af', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', cursor: 'pointer', transition: 'all 0.2s', padding: 0 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#9ca3af'; }}>
+              ×
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+
+  return (
+    <>
       <nav>
         <button
           type="button"
@@ -105,150 +252,90 @@ function Navbar() {
           <span></span>
           <span></span>
         </button>
-        <div className="nav-group nav-group-primary">
-          <Link to="/dashboard" className="logo" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="nav-group nav-group-primary nav-group-home">
+          <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <img src="/vite.svg" alt="SkillSwap Logo" width="30" height="30" />
-            SkillSwap
-          </Link>
+            Skillswap
+          </div>
           <div className={`nav-links ${isMobileMenuOpen ? 'nav-links-open' : ''}`}>
-            <Link to="/dashboard" className="nav-link">Overview</Link>
-            <Link to="/dashboard/find-skills" className="nav-link">Find Skills</Link>
-            <Link to="/dashboard/my-skills" className="nav-link">My Skills</Link>
-            <Link to="/dashboard/messages" className="nav-link">Messages</Link>
-            <Link to="/dashboard/profile" className="nav-link">Profile</Link>
+            <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>Home</NavLink>
+
+            <div className="nav-item">
+              <NavLink to="/product" className={`nav-link ${isProduct ? 'active' : ''}`}>Product</NavLink>
+              <div className="dropdown">
+                <Link to="/product/features">Features</Link>
+                <Link to="/product/pricing">Pricing</Link>
+                <Link to="/product/reviews">Reviews</Link>
+              </div>
+            </div>
+
+            <div className="nav-item">
+              <NavLink to="/company" className={`nav-link ${isCompany ? 'active' : ''}`}>Company</NavLink>
+              <div className="dropdown">
+                <Link to="/company/about">About Us</Link>
+                <Link to="/company/team">Our Team</Link>
+                <Link to="/company/careers">Careers</Link>
+              </div>
+            </div>
+
+            <div className="nav-item">
+              <NavLink to="/resources" className={`nav-link ${isResources ? 'active' : ''}`}>Resources</NavLink>
+              <div className="dropdown">
+                <Link to="/resources/blog">Blog</Link>
+                <Link to="/resources/guides">Guides</Link>
+                <Link to="/resources/community">Community</Link>
+              </div>
+            </div>
+
+            <div className="nav-item">
+              <NavLink to="/legal" className={`nav-link ${isLegal ? 'active' : ''}`}>Legal</NavLink>
+              <div className="dropdown">
+                <Link to="/legal/privacy">Privacy Policy</Link>
+                <Link to="/legal/terms">Terms of Service</Link>
+              </div>
+            </div>
           </div>
         </div>
-        <div className={`nav-group nav-group-secondary ${isMobileMenuOpen ? 'nav-group-open' : ''}`}>
-          <div style={{ background: 'rgba(100, 108, 255, 0.15)', padding: '6px 14px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid rgba(100, 108, 255, 0.3)' }}>
-            <span style={{ fontSize: '1.1rem' }}>⚡</span>
-            <span style={{ fontWeight: '600', color: '#fff', fontSize: '0.95rem' }}>{credits} Credits</span>
-          </div>
-          <div
-            ref={notificationRef}
-            className="notification-wrapper"
-            onMouseEnter={() => setShowNotifications(true)}
-            onMouseLeave={() => setShowNotifications(false)}
-          >
-            <div className="notification-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-            </div>
-            {notifications.length > 0 && notifications[0].title !== 'All caught up! ✨' && (
-              <span className="notification-badge">{notifications.length}</span>
-            )}
-            {showNotifications && (
-              <div className="notification-dropdown">
-                <div className="notification-header">Notifications</div>
-                {notifications.map((notif, idx) => (
-                  <div className="notification-item" key={idx}>
-                    <strong>{notif.title}</strong>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#9ca3af' }}>{notif.desc}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div
-            className="profile-wrapper"
-            onMouseEnter={() => setShowProfileMenu(true)}
-            onMouseLeave={() => setShowProfileMenu(false)}
-            style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
-          >
-            <div
-              className="avatar"
-              style={{ width: '35px', height: '35px', background: getStoredUser()?.avatar ? `url(${buildApiUrl(getStoredUser().avatar.replace(/\\/g, '/'))}) center/cover` : 'linear-gradient(135deg, #646cff, #bc13fe)', fontSize: '0.9rem', cursor: 'pointer', marginRight: 0 }}
-            >
-              {!getStoredUser()?.avatar && (getStoredUser()?.name ? getStoredUser().name.charAt(0).toUpperCase() : 'U')}
-            </div>
-            {showProfileMenu && (
-              <div className="notification-dropdown" style={{ width: '220px' }}>
-                <div className="notification-header" style={{ padding: '15px' }}>
-                  <strong style={{ display: 'block', color: '#fff', fontSize: '1rem' }}>{getStoredUser()?.name || 'User'}</strong>
-                  <span style={{ color: '#aaa', fontSize: '0.8rem', fontWeight: 'normal' }}>{getStoredUser()?.email}</span>
-                </div>
-                <div className="notification-item" onClick={() => navigate('/dashboard/profile')}>
-                  <strong>⚙️ Profile Settings</strong>
-                </div>
-                <div className="notification-item" onClick={() => { clearStoredUser(); navigate('/'); }}>
-                  <strong style={{ color: '#ff4d4d' }}>🚪 Logout</strong>
-                </div>
-              </div>
-            )}
-          </div>
+        <div className={`nav-group nav-group-secondary ${isMobileMenuOpen ? 'nav-group-open' : ''}`} style={{ alignItems: 'center' }}>
+          <Link to="/apply-verifier" style={{ textDecoration: 'none', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.5)', background: 'rgba(16, 185, 129, 0.1)', padding: '0.5rem 1.2rem', borderRadius: '30px', fontSize: '0.9rem', marginRight: '15px', fontWeight: '600', transition: 'all 0.2s' }}>
+            🛡️ Become a Verifier
+          </Link>
+          <Link to="/admin/login" style={{ textDecoration: 'none', color: '#9ca3af', fontSize: '0.85rem', marginRight: '15px' }}>
+            Admin
+          </Link>
+          <Link to="/register" className="btn-primary" style={{ textDecoration: 'none', padding: '0.6rem 1.5rem', borderRadius: '30px', fontSize: '0.95rem', fontWeight: '600' }}>
+            Get Started
+          </Link>
         </div>
       </nav>
-    );
-  }
 
-
-  return (
-    <nav>
-      <button
-        type="button"
-        className="nav-toggle"
-        onClick={() => setIsMobileMenuOpen((open) => !open)}
-        aria-label="Toggle navigation menu"
-        aria-expanded={isMobileMenuOpen}
-      >
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-      <div className="nav-group nav-group-primary nav-group-home">
-        <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img src="/vite.svg" alt="SkillSwap Logo" width="30" height="30" />
-          Skillswap
+      {/* TOAST NOTIFICATION POP-UP FOR NON-DASHBOARD PAGES */}
+      {toast && (
+        <div
+          onClick={() => { navigate(toast.link); setToast(null); }}
+          style={{
+            position: 'fixed', bottom: '30px', right: '30px',
+            background: 'rgba(31, 41, 55, 0.95)', backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.1)', borderLeft: '4px solid #646cff',
+            borderRadius: '12px', padding: '16px 20px', color: '#fff',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5), 0 10px 10px -5px rgba(0,0,0,0.2)',
+            zIndex: 99999, cursor: 'pointer', animation: 'fadeInUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+            display: 'flex', alignItems: 'center', gap: '16px', minWidth: '300px', maxWidth: '400px'
+          }}
+        >
+          <div style={{ background: 'rgba(100,108,255,0.2)', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+            🔔
+          </div>
+          <div style={{ flex: 1 }}>
+            <strong style={{ display: 'block', marginBottom: '4px', color: '#e5e7eb', fontSize: '1.05rem', fontWeight: '600' }}>{toast.title}</strong>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: '#9ca3af', lineHeight: '1.4' }}>{toast.desc}</p>
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); setToast(null); }} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#9ca3af', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', cursor: 'pointer', transition: 'all 0.2s', padding: 0 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#9ca3af'; }}>
+            ×
+          </button>
         </div>
-        <div className={`nav-links ${isMobileMenuOpen ? 'nav-links-open' : ''}`}>
-          <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>Home</NavLink>
-
-          <div className="nav-item">
-            <NavLink to="/product" className={`nav-link ${isProduct ? 'active' : ''}`}>Product</NavLink>
-            <div className="dropdown">
-              <Link to="/product/features">Features</Link>
-              <Link to="/product/pricing">Pricing</Link>
-              <Link to="/product/reviews">Reviews</Link>
-            </div>
-          </div>
-
-          <div className="nav-item">
-            <NavLink to="/company" className={`nav-link ${isCompany ? 'active' : ''}`}>Company</NavLink>
-            <div className="dropdown">
-              <Link to="/company/about">About Us</Link>
-              <Link to="/company/team">Our Team</Link>
-              <Link to="/company/careers">Careers</Link>
-            </div>
-          </div>
-
-          <div className="nav-item">
-            <NavLink to="/resources" className={`nav-link ${isResources ? 'active' : ''}`}>Resources</NavLink>
-            <div className="dropdown">
-              <Link to="/resources/blog">Blog</Link>
-              <Link to="/resources/guides">Guides</Link>
-              <Link to="/resources/community">Community</Link>
-            </div>
-          </div>
-
-          <div className="nav-item">
-            <NavLink to="/legal" className={`nav-link ${isLegal ? 'active' : ''}`}>Legal</NavLink>
-            <div className="dropdown">
-              <Link to="/legal/privacy">Privacy Policy</Link>
-              <Link to="/legal/terms">Terms of Service</Link>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className={`nav-group nav-group-secondary ${isMobileMenuOpen ? 'nav-group-open' : ''}`} style={{ alignItems: 'center' }}>
-        <Link to="/apply-verifier" style={{ textDecoration: 'none', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.5)', background: 'rgba(16, 185, 129, 0.1)', padding: '0.5rem 1.2rem', borderRadius: '30px', fontSize: '0.9rem', marginRight: '15px', fontWeight: '600', transition: 'all 0.2s' }}>
-          🛡️ Become a Verifier
-        </Link>
-        <Link to="/admin/login" style={{ textDecoration: 'none', color: '#9ca3af', fontSize: '0.85rem', marginRight: '15px' }}>
-          Admin
-        </Link>
-        <Link to="/register" className="btn-primary" style={{ textDecoration: 'none', padding: '0.6rem 1.5rem', borderRadius: '30px', fontSize: '0.95rem', fontWeight: '600' }}>
-          Get Started
-        </Link>
-      </div>
-    </nav>
+      )}
+    </>
   );
 }
 

@@ -7,6 +7,7 @@ const Message = require('../models/Message');
 const Announcement = require('../models/Announcement');
 const Ticket = require('../models/Ticket');
 const Log = require('../models/Log');
+const AdminReport = require('../models/AdminReport');
 
 router.get('/stats', async (req, res) => {
     try {
@@ -90,6 +91,22 @@ router.post('/announcements', async (req, res) => {
 router.get('/announcements', async (req, res) => {
     const announcements = await Announcement.find().sort({ date: -1 }).limit(10);
     res.json(announcements);
+});
+
+router.get('/reports', async (req, res) => {
+    const reports = await AdminReport.find().sort({ createdAt: -1 });
+    res.json(reports);
+});
+
+router.put('/reports/:id/resolve', async (req, res) => {
+    try {
+        const report = await AdminReport.findByIdAndUpdate(req.params.id, { status: 'Resolved' }, { new: true });
+        if (!report) return res.status(404).json({ message: 'Report not found' });
+        await Log.create({ level: 'INFO', message: `Admin resolved report for ${report.targetUserName}` });
+        res.json({ message: 'Report resolved successfully', report });
+    } catch (err) {
+        res.status(500).json({ message: 'Error resolving report' });
+    }
 });
 
 module.exports = router;

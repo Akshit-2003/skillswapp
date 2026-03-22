@@ -21,7 +21,7 @@ const SuperAdminRegister = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     // Simple check for secret key to allow registration
-    if (secretKey !== 'Skillswap_SUPER_SECRET') {
+    if (secretKey !== 'Akshit@#$2004') {
       alert('Invalid Secret Key! You are not authorized to create a Main Admin account.');
       return;
     }

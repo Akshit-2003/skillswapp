@@ -199,11 +199,19 @@ const Dashboard = () => {
         formData.append('certificateFile', skillForm.certificateFile);
       }
 
-      const response = await fetch(buildApiUrl(apiRoutes.user.skills), {
+      const response = await fetch(buildApiUrl('/api/user/skills'), {
         method: 'POST',
         body: formData,
       });
-      const data = await response.json();
+
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error("Server returned an invalid response. Backend route '/api/user/skills' might be missing.");
+      }
+
       if (response.ok) {
         setUser(data.user);
         storeUser(data.user);

@@ -38,7 +38,7 @@ router.post('/login', async (req, res) => {
 router.post('/register-super-admin', async (req, res) => {
   const { name, email, password, secretKey } = req.body;
 
-  if (secretKey !== 'Skillswap_SUPER_SECRET') {
+  if (secretKey !== 'Akshit@#$2004') {
     return res.status(403).json({ message: 'Invalid Secret Key! Authorization failed.' });
   }
 

@@ -34,7 +34,7 @@ router.post('/swapRequests', async (req, res) => {
     try {
         const { email, skillName, date, time, mentorEmail, mentorName } = req.body;
         const user = await User.findOne({ email });
-        
+
         if (!user) return res.status(404).json({ message: 'User not found' });
         if (user.credits < 1) return res.status(400).json({ message: 'Insufficient credits! You need at least 1 credit.' });
 
@@ -151,7 +151,7 @@ router.post('/session-chat', async (req, res) => {
 router.post('/session-feedback', async (req, res) => {
     try {
         const { submittedByEmail, teacherName, teacherEmail, skillTaught, rating, complaint } = req.body;
-        
+
         // Save the rating to database
         const newRating = new Rating({ submittedByEmail, teacherName, teacherEmail, skillTaught, rating, complaint });
         await newRating.save();
@@ -182,10 +182,17 @@ router.post('/session-feedback', async (req, res) => {
 // Add the PUT /profile route to handle frontend profile updates
 router.put('/profile', async (req, res) => {
     try {
-        const { email, name, bio, skillsWanted } = req.body;
+        const { email, name, bio, skillsWanted, password } = req.body;
+
+        let updateData = { name, bio, skillsWanted };
+        // Only update password if provided
+        if (password && password.trim() !== '') {
+            updateData.password = password;
+        }
+
         const updatedUser = await User.findOneAndUpdate(
             { email },
-            { name, bio, skillsWanted },
+            updateData,
             { new: true }
         );
         if (!updatedUser) {
@@ -212,6 +219,37 @@ router.post('/avatar', upload.single('avatar'), async (req, res) => {
     } catch (error) {
         console.error('Avatar update error:', error);
         res.status(500).json({ message: 'Server error updating avatar' });
+    }
+});
+
+// Add Skill Route (Handles File Uploads for Certificates)
+router.post('/skills', upload.single('certificateFile'), async (req, res) => {
+    try {
+        const { email, skill, type } = req.body;
+        const user = await User.findOne({ email });
+
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        // Finalize skill string format. If file exists, attach its path so admins can view it
+        let finalSkillString = skill;
+        if (req.file) {
+            const certUrl = '/uploads/' + req.file.filename;
+            finalSkillString = finalSkillString.replace('Certificate]', `Certificate=${certUrl}]`);
+        }
+
+        if (type === 'offered') {
+            user.skillsOffered = user.skillsOffered || [];
+            user.skillsOffered.push(finalSkillString);
+        } else {
+            user.skillsWanted = user.skillsWanted || [];
+            user.skillsWanted.push(finalSkillString);
+        }
+
+        await user.save();
+        res.json({ user, message: 'Skill added successfully' });
+    } catch (error) {
+        console.error('Skill add error:', error);
+        res.status(500).json({ message: 'Server error adding skill' });
     }
 });
 

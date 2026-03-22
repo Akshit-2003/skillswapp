@@ -28,15 +28,34 @@ export const FindSkills = () => {
       setUser(storedUser);
     }
 
-    // Fetch global skills from backend
-    const fetchSkills = async () => {
+    // Fetch user data (for latest credits) and global skills from backend
+    const fetchData = async () => {
+      // Sync User Data
+      const currentUser = getStoredUser();
+      if (currentUser) {
+        try {
+          const userRes = await fetch(buildApiUrl(`${apiRoutes.user.profile}?email=${encodeURIComponent(currentUser.email)}`));
+          if (userRes.ok) {
+            const userData = await userRes.json();
+            setUser(userData);
+            storeUser(userData);
+            window.dispatchEvent(new Event('user_updated')); // SYNC NAVBAR REALTIME
+          }
+        } catch (e) {
+          console.error("Failed to sync user data in Find Skills:", e);
+        }
+      }
+
       try {
         const response = await fetch(buildApiUrl(apiRoutes.platform.skills));
         if (response.ok) {
           const data = await response.json();
           // Assuming data is an array of { name: "User Name", skill: "Skill String", ... }
           if (Array.isArray(data)) {
-            const globalSkills = data.map((item, index) => {
+            // Filter out Teacher Admin, Main Admin, and Super Admin from the user-facing skills list
+            const validData = data.filter(item => item.role !== 'Teacher Admin' && item.role !== 'Main Admin' && item.role !== 'Super Admin');
+
+            const globalSkills = validData.map((item, index) => {
               // Parse the skill string format: "Name (Proficiency) [Proof...]"
               let skillName = item.skill || item.skillName || 'Unknown Skill';
               let level = 'Unknown';
@@ -66,9 +85,9 @@ export const FindSkills = () => {
       }
     };
 
-    fetchSkills();
+    fetchData();
     // Real-time Database Sync (Updates every 5 seconds)
-    const intervalId = setInterval(fetchSkills, 5000);
+    const intervalId = setInterval(fetchData, 5000);
     return () => clearInterval(intervalId);
   }, []);
 
@@ -297,6 +316,7 @@ export const Messages = () => {
   const [newMessage, setNewMessage] = useState('');
   const [newChatEmail, setNewChatEmail] = useState('');
   const user = getStoredUser();
+  const messagesEndRef = useRef(null);
 
   const fetchMessages = async () => {
     if (user) {
@@ -304,17 +324,56 @@ export const Messages = () => {
         const response = await fetch(buildApiUrl(`/api/messages/${encodeURIComponent(user.email)}`));
         if (response.ok) {
           const data = await response.json();
-          setConversations(Array.isArray(data) ? data : []);
-          if (selectedConv) {
-            const updated = data.find(c => c.email === selectedConv.email);
-            if (updated) setSelectedConv(prev => ({ ...prev, ...updated }));
-          }
+          const validData = Array.isArray(data) ? data : [];
+          
+          // Automatically merge and preserve old messages in the conversation list
+          setConversations(prevConvs => {
+            if (!prevConvs || prevConvs.length === 0) return validData;
+            return validData.map(newConv => {
+              const oldConv = prevConvs.find(c => c.email === newConv.email);
+              if (oldConv) {
+                let merged = oldConv.messages || [];
+                if (newConv.messages && newConv.messages.length >= merged.length) {
+                  merged = newConv.messages;
+                } else if (newConv.messages && newConv.messages.length > 0) {
+                  const newMsgs = newConv.messages.filter(nm => !merged.some(om => om.message === nm.message && om.senderEmail === nm.senderEmail));
+                  merged = [...merged, ...newMsgs];
+                } else if (newConv.lastMessage && newConv.lastMessage !== oldConv.lastMessage) {
+                  if (!merged.some(m => m.message === newConv.lastMessage)) {
+                    merged = [...merged, { senderEmail: newConv.email, message: newConv.lastMessage }];
+                  }
+                }
+                return { ...oldConv, ...newConv, messages: merged };
+              }
+              return newConv;
+            });
+          });
+
+          // Keep the active chat window updated without losing previous texts
+          setSelectedConv(prev => {
+            if (!prev) return null;
+            const updated = validData.find(c => c.email === prev.email);
+            if (updated) {
+              let merged = prev.messages || [];
+              if (updated.messages && updated.messages.length >= merged.length) {
+                merged = updated.messages;
+              } else if (updated.messages && updated.messages.length > 0) {
+                const newMsgs = updated.messages.filter(nm => !merged.some(om => om.message === nm.message && om.senderEmail === nm.senderEmail));
+                merged = [...merged, ...newMsgs];
+              } else if (updated.lastMessage && updated.lastMessage !== prev.lastMessage) {
+                if (!merged.some(m => m.message === updated.lastMessage)) {
+                  merged = [...merged, { senderEmail: updated.email, message: updated.lastMessage }];
+                }
+              }
+              return { ...prev, ...updated, messages: merged };
+            }
+            return prev;
+          });
         } else {
-          setConversations([]);
+          setConversations(prev => prev.length ? prev : []);
         }
       } catch (e) {
         console.error("Fetch messages failed", e);
-        setConversations([]);
       } finally {
         setLoading(false);
       }
@@ -327,6 +386,10 @@ export const Messages = () => {
     const intervalId = setInterval(fetchMessages, 5000);
     return () => clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedConv?.messages, selectedConv?.lastMessage]);
 
   const handleStartNewChat = (e) => {
     e.preventDefault();
@@ -351,6 +414,11 @@ export const Messages = () => {
         })
       });
       if (response.ok) {
+        setSelectedConv(prev => ({
+          ...prev,
+          lastMessage: newMessage,
+          messages: [...(prev.messages || []), { senderEmail: user.email, message: newMessage }]
+        }));
         setNewMessage('');
         fetchMessages(); // refresh immediately
       }
@@ -390,9 +458,21 @@ export const Messages = () => {
               <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{selectedConv.name} <span style={{ fontSize: '0.8rem', color: '#aaa', fontWeight: 'normal', marginLeft: '5px' }}>({selectedConv.email})</span></h3>
             </div>
             <div style={{ flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {selectedConv.messages && selectedConv.messages.length > 0 ? (
+              selectedConv.messages.map((msg, idx) => {
+                const isMe = msg.senderEmail === user.email;
+                return (
+                  <div key={idx} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', background: isMe ? '#646cff' : '#374151', padding: '10px 15px', borderRadius: isMe ? '15px 15px 0 15px' : '15px 15px 15px 0', maxWidth: '80%', color: '#fff', wordBreak: 'break-word' }}>
+                    {msg.message}
+                  </div>
+                );
+              })
+            ) : (
               <div style={{ alignSelf: 'flex-start', background: '#374151', padding: '10px 15px', borderRadius: '15px 15px 15px 0', maxWidth: '80%', color: '#d1d5db' }}>
                 {selectedConv.lastMessage === 'Start typing...' ? 'Send a message to start the conversation.' : selectedConv.lastMessage}
               </div>
+            )}
+            <div ref={messagesEndRef} />
             </div>
             <form onSubmit={handleSendMessage} style={{ padding: '15px', borderTop: '1px solid #374151', display: 'flex', gap: '10px', background: 'rgba(0,0,0,0.2)' }}>
               <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #4b5563', background: '#111827', color: '#fff', outline: 'none' }} />
