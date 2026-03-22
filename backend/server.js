@@ -2,8 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const { connectDatabase } = require('./config/db');
-const { uploadDir } = require('./middleware/upload');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const platformRoutes = require('./routes/platformRoutes');
@@ -16,9 +16,15 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 
+// Ensure uploads directory exists securely
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 app.use(express.json());
 app.use(cors());
-app.use('/uploads', express.static(path.join(uploadDir)));
+app.use('/uploads', express.static(uploadDir));
 
 app.get('/', (_req, res) => {
   res.send('SkillSwap backend is running!');
