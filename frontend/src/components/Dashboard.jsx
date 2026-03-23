@@ -84,6 +84,7 @@ const Dashboard = () => {
   const peerConnectionRef = useRef(null);
   const processedSignalsRef = useRef({ offer: null, answer: null, candidates: new Set() });
   const pendingIceCandidatesRef = useRef([]);
+  const callAttemptIdRef = useRef('');
   const navigate = useNavigate();
   const location = useLocation();
   const currentUserEmail = user?.email || '';
@@ -191,6 +192,7 @@ const Dashboard = () => {
     remoteStreamRef.current = null;
     processedSignalsRef.current = { offer: null, answer: null, candidates: new Set() };
     pendingIceCandidatesRef.current = [];
+    callAttemptIdRef.current = '';
 
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = null;
@@ -211,14 +213,18 @@ const Dashboard = () => {
     const response = await fetch(buildApiUrl('/api/user/session-call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, type, fromEmail, toEmail, payload })
+      body: JSON.stringify({ sessionId, type, fromEmail, toEmail, payload, attemptId: callAttemptIdRef.current })
     });
 
     if (!response.ok) {
       throw new Error(`Failed to sync ${type} signal`);
     }
 
-    return response.json().catch(() => null);
+    const data = await response.json().catch(() => null);
+    if (data?.call?.attemptId) {
+      callAttemptIdRef.current = data.call.attemptId;
+    }
+    return data;
   };
 
   const ensureLocalStream = async () => {
@@ -533,12 +539,16 @@ const Dashboard = () => {
         if (!res.ok || disposed) return;
 
         const callState = await res.json();
+        if (callState.attemptId) {
+          callAttemptIdRef.current = callState.attemptId;
+        }
         const peerConnection = await createPeerConnection(activeSession);
         if (disposed) return;
 
         const { currentEmail, otherEmail, isLearner } = getSessionParticipants(activeSession);
 
         if (
+          callState.attemptId === callAttemptIdRef.current &&
           callState.offer &&
           callState.offer.fromEmail === otherEmail &&
           processedSignalsRef.current.offer !== callState.offer.updatedAt
@@ -555,6 +565,7 @@ const Dashboard = () => {
         }
 
         if (
+          callState.attemptId === callAttemptIdRef.current &&
           callState.answer &&
           callState.answer.fromEmail === otherEmail &&
           processedSignalsRef.current.answer !== callState.answer.updatedAt
@@ -569,6 +580,7 @@ const Dashboard = () => {
 
         for (const candidateItem of callState.iceCandidates || []) {
           if (
+            (!candidateItem.attemptId || candidateItem.attemptId === callAttemptIdRef.current) &&
             candidateItem.fromEmail === otherEmail &&
             !processedSignalsRef.current.candidates.has(candidateItem._id)
           ) {
@@ -583,6 +595,7 @@ const Dashboard = () => {
 
         if (
           isLearner &&
+          callState.attemptId === callAttemptIdRef.current &&
           !callState.offer &&
           !peerConnection.localDescription &&
           !isPreparingCall

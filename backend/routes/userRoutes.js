@@ -25,13 +25,20 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+const createAttemptId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 const getSanitizedCallState = (session, viewerEmail) => {
     const callState = session.call || {};
 
     return {
+        attemptId: callState.attemptId || '',
         offer: callState.offer && (!callState.offer.toEmail || callState.offer.toEmail === viewerEmail) ? callState.offer : null,
         answer: callState.answer && (!callState.answer.toEmail || callState.answer.toEmail === viewerEmail) ? callState.answer : null,
-        iceCandidates: (callState.iceCandidates || []).filter(candidate => !candidate.toEmail || candidate.toEmail === viewerEmail),
+        iceCandidates: (callState.iceCandidates || []).filter(candidate => {
+            const matchesViewer = !candidate.toEmail || candidate.toEmail === viewerEmail;
+            const matchesAttempt = !callState.attemptId || !candidate.attemptId || candidate.attemptId === callState.attemptId;
+            return matchesViewer && matchesAttempt;
+        }),
         startedAt: callState.startedAt || null,
         endedAt: callState.endedAt || null
     };
@@ -98,10 +105,12 @@ router.put('/approve-session', async (req, res) => {
 router.put('/join-session', async (req, res) => {
     try {
         const { sessionId } = req.body;
+        const attemptId = createAttemptId();
         const session = await Session.findByIdAndUpdate(
             sessionId,
             {
                 status: 'Active',
+                'call.attemptId': attemptId,
                 'call.offer': null,
                 'call.answer': null,
                 'call.iceCandidates': [],
@@ -163,7 +172,7 @@ router.get('/session-call/:sessionId', async (req, res) => {
 
 router.post('/session-call', async (req, res) => {
     try {
-        const { sessionId, type, fromEmail, toEmail, payload } = req.body;
+        const { sessionId, type, fromEmail, toEmail, payload, attemptId } = req.body;
         const session = await Session.findById(sessionId);
 
         if (!session) return res.status(404).json({ message: 'Session not found' });
@@ -177,6 +186,12 @@ router.post('/session-call', async (req, res) => {
             return res.status(400).json({ message: 'Invalid call signal type' });
         }
 
+        const activeAttemptId = session.call?.attemptId || '';
+
+        if (type !== 'reset' && attemptId && activeAttemptId && attemptId !== activeAttemptId) {
+            return res.status(409).json({ message: 'Stale call attempt' });
+        }
+
         let updatedSession = null;
 
         if (type === 'offer') {
@@ -184,9 +199,11 @@ router.post('/session-call', async (req, res) => {
                 sessionId,
                 {
                     $set: {
+                        'call.attemptId': attemptId || activeAttemptId || createAttemptId(),
                         'call.offer': {
                             fromEmail,
                             toEmail,
+                            attemptId: attemptId || activeAttemptId || '',
                             payload,
                             updatedAt: new Date()
                         },
@@ -208,6 +225,7 @@ router.post('/session-call', async (req, res) => {
                         'call.answer': {
                             fromEmail,
                             toEmail,
+                            attemptId: attemptId || activeAttemptId || '',
                             payload,
                             updatedAt: new Date()
                         },
@@ -226,6 +244,7 @@ router.post('/session-call', async (req, res) => {
                         'call.iceCandidates': {
                             fromEmail,
                             toEmail,
+                            attemptId: attemptId || activeAttemptId || '',
                             candidate: payload
                         }
                     },
@@ -238,10 +257,12 @@ router.post('/session-call', async (req, res) => {
         }
 
         if (type === 'reset') {
+            const nextAttemptId = createAttemptId();
             updatedSession = await Session.findByIdAndUpdate(
                 sessionId,
                 {
                     $set: {
+                        'call.attemptId': nextAttemptId,
                         'call.offer': null,
                         'call.answer': null,
                         'call.iceCandidates': [],
