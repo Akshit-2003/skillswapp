@@ -83,6 +83,7 @@ const Dashboard = () => {
   const remoteStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const processedSignalsRef = useRef({ offer: null, answer: null, candidates: new Set() });
+  const pendingIceCandidatesRef = useRef([]);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -186,6 +187,7 @@ const Dashboard = () => {
 
     remoteStreamRef.current = null;
     processedSignalsRef.current = { offer: null, answer: null, candidates: new Set() };
+    pendingIceCandidatesRef.current = [];
 
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = null;
@@ -264,6 +266,8 @@ const Dashboard = () => {
 
       if (state === 'connected') {
         setCallStatus('Connected & Active');
+      } else if (state === 'completed') {
+        setCallStatus('Connected & Active');
       } else if (state === 'connecting') {
         setCallStatus('Connecting...');
       } else if (state === 'failed' || state === 'disconnected') {
@@ -276,6 +280,23 @@ const Dashboard = () => {
     peerConnectionRef.current = peerConnection;
     attachVideoStreams();
     return peerConnection;
+  };
+
+  const flushPendingIceCandidates = async (peerConnection) => {
+    if (!peerConnection?.remoteDescription || pendingIceCandidatesRef.current.length === 0) {
+      return;
+    }
+
+    const queuedCandidates = [...pendingIceCandidatesRef.current];
+    pendingIceCandidatesRef.current = [];
+
+    for (const candidate of queuedCandidates) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('Queued ICE candidate error:', error);
+      }
+    }
   };
 
   const createAndSendOffer = async (session) => {
@@ -483,7 +504,9 @@ const Dashboard = () => {
 
     const pollSignals = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/api/user/session-call/${activeSession.id}?email=${encodeURIComponent(user.email)}`));
+        const res = await fetch(buildApiUrl(`/api/user/session-call/${activeSession.id}?email=${encodeURIComponent(user.email)}&t=${Date.now()}`), {
+          cache: 'no-store'
+        });
         if (!res.ok || disposed) return;
 
         const callState = await res.json();
@@ -503,6 +526,7 @@ const Dashboard = () => {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(callState.offer.payload));
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
+            await flushPendingIceCandidates(peerConnection);
             await sendCallSignal(activeSession.id, 'answer', currentEmail, otherEmail, answer);
             setCallStatus('Joining call...');
           }
@@ -517,6 +541,7 @@ const Dashboard = () => {
 
           if (!peerConnection.currentRemoteDescription) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(callState.answer.payload));
+            await flushPendingIceCandidates(peerConnection);
             setCallStatus('Connected & Active');
           }
         }
@@ -527,7 +552,11 @@ const Dashboard = () => {
             !processedSignalsRef.current.candidates.has(candidateItem._id)
           ) {
             processedSignalsRef.current.candidates.add(candidateItem._id);
-            await peerConnection.addIceCandidate(new RTCIceCandidate(candidateItem.candidate));
+            if (peerConnection.remoteDescription) {
+              await peerConnection.addIceCandidate(new RTCIceCandidate(candidateItem.candidate));
+            } else {
+              pendingIceCandidatesRef.current.push(candidateItem.candidate);
+            }
           }
         }
 
@@ -545,7 +574,7 @@ const Dashboard = () => {
     };
 
     pollSignals();
-    const intervalId = setInterval(pollSignals, 1000);
+    const intervalId = setInterval(pollSignals, 500);
 
     return () => {
       disposed = true;
