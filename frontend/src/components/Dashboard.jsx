@@ -4,6 +4,37 @@ import { buildApiUrl } from '../api';
 import { apiRoutes } from '../routes/apiRoutes';
 import { getStoredUser, storeUser } from '../utils/auth';
 
+const ThemeToggle = () => {
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    document.body.className = theme === 'light' ? 'light-mode' : '';
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  return (
+    <button 
+      onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')} 
+      style={{
+        background: theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', 
+        border: theme === 'dark' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.1)', 
+        color: theme === 'dark' ? '#fff' : '#333', 
+        padding: '8px 16px', 
+        borderRadius: '20px', 
+        cursor: 'pointer', 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '8px', 
+        fontSize: '0.9rem',
+        fontWeight: 'bold',
+        transition: 'all 0.2s ease'
+      }}
+    >
+      {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+    </button>
+  );
+};
+
 const StatCounter = ({ end, duration = 2000, suffix = "" }) => {
   const [count, setCount] = useState(0);
 
@@ -377,25 +408,28 @@ const Dashboard = () => {
           <h2>Welcome back, <span style={{ color: '#646cff' }}>{user.name}</span>! 👋</h2>
           <p style={{ opacity: 0.7 }}>Here's what's happening with your skills today.</p>
         </div>
-        <div className="view-toggle">
-          <button 
-            className={viewMode === 'learning' ? 'active' : ''} 
-            onClick={() => setViewMode('learning')}
-          >
-            Learning
-          </button>
-          <button 
-            className={viewMode === 'teaching' ? 'active' : ''} 
-            onClick={() => setViewMode('teaching')}
-          >
-            Teaching
-          </button>
-          <button 
-            className={viewMode === 'certificates' ? 'active' : ''} 
-            onClick={() => setViewMode('certificates')}
-          >
-            Certificates
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <ThemeToggle />
+          <div className="view-toggle">
+            <button 
+              className={viewMode === 'learning' ? 'active' : ''} 
+              onClick={() => setViewMode('learning')}
+            >
+              Learning
+            </button>
+            <button 
+              className={viewMode === 'teaching' ? 'active' : ''} 
+              onClick={() => setViewMode('teaching')}
+            >
+              Teaching
+            </button>
+            <button 
+              className={viewMode === 'certificates' ? 'active' : ''} 
+              onClick={() => setViewMode('certificates')}
+            >
+              Certificates
+            </button>
+          </div>
         </div>
       </div>
 
